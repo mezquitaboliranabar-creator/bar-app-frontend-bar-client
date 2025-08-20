@@ -1,8 +1,12 @@
 // src/pages/MesaPage.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import apiMesas, { Mesa } from "../services/apiMesas";
 import apiSessions, { Session } from "../services/apiSessions";
+
+// 🔁 Activa redirección automática solo si defines esta env en el frontend
+const AUTO_REDIRECT =
+  (process.env.REACT_APP_AUTO_REDIRECT_TO_MENU || "").toLowerCase() === "true";
 
 const MesaPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -12,6 +16,9 @@ const MesaPage: React.FC = () => {
   const [sessState, setSessState] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Evita doble navegación en StrictMode
+  const redirected = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -43,7 +50,14 @@ const MesaPage: React.FC = () => {
 
         // 3) Guardar en localStorage
         localStorage.setItem("mesaId", id);
+        localStorage.setItem("mesaNumero", String(m.numero));
         if (session?.sessionId) localStorage.setItem("sessionId", session.sessionId);
+
+        // 4) 🚀 Redirigir automáticamente (solo si la env está activa)
+        if (AUTO_REDIRECT && !redirected.current) {
+          redirected.current = true;
+          navigate("/menu", { replace: true });
+        }
       } catch (e: any) {
         if (!alive) return;
         const msg =
@@ -61,8 +75,17 @@ const MesaPage: React.FC = () => {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, navigate]);
 
+  // 🔁 Si el auto-redirect está activo, no mostramos la tarjeta;
+  // solo un loader o el error (y luego navega a /menu).
+  if (AUTO_REDIRECT) {
+    if (loading && !error) return <div style={{ padding: 24, color: "#c3a24a" }}>Preparando tu mesa…</div>;
+    if (error) return <div style={{ padding: 24, color: "red" }}>{error}</div>;
+    return null;
+  }
+
+  // 👉 Comportamiento actual intacto (sin redirección automática)
   if (loading) return <div style={{ padding: 24, color: "#c3a24a" }}>Cargando mesa…</div>;
   if (error) return <div style={{ padding: 24, color: "red" }}>{error}</div>;
   if (!mesa) return <div style={{ padding: 24 }}>Mesa no encontrada</div>;
