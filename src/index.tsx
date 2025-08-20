@@ -1,13 +1,19 @@
+// src/index.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { HashRouter } from "react-router-dom";
 import App from "./App";
 
+// 🧩 Puente: si la URL viene como /mesa/abc (sin hash), redirigimos a /#/mesa/abc
+if (window.location.pathname !== "/" && !window.location.hash) {
+  const newUrl = "/#" + window.location.pathname + window.location.search + window.location.hash;
+  window.location.replace(newUrl);
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  // Nota: en desarrollo, StrictMode duplica useEffect a propósito.
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <App />
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );
