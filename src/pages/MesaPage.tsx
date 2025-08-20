@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import apiMesas, { Mesa } from "../services/apiMesas";
 import apiSessions, { Session } from "../services/apiSessions";
 
-// 🔁 Activa redirección automática solo si defines esta env en el frontend
+// 🔁 Redirección automática opcional (usa la misma env que ya tenías)
 const AUTO_REDIRECT =
   (process.env.REACT_APP_AUTO_REDIRECT_TO_MENU || "").toLowerCase() === "true";
 
@@ -53,10 +53,10 @@ const MesaPage: React.FC = () => {
         localStorage.setItem("mesaNumero", String(m.numero));
         if (session?.sessionId) localStorage.setItem("sessionId", session.sessionId);
 
-        // 4) 🚀 Redirigir automáticamente (solo si la env está activa)
+        // 4) 🚀 Redirigir automáticamente (solo si la env está activa) -> al Dashboard (/)
         if (AUTO_REDIRECT && !redirected.current) {
           redirected.current = true;
-          navigate("/menu", { replace: true });
+          navigate("/", { replace: true });
         }
       } catch (e: any) {
         if (!alive) return;
@@ -78,7 +78,7 @@ const MesaPage: React.FC = () => {
   }, [id, navigate]);
 
   // 🔁 Si el auto-redirect está activo, no mostramos la tarjeta;
-  // solo un loader o el error (y luego navega a /menu).
+  // solo un loader o el error (y luego navega al Dashboard /).
   if (AUTO_REDIRECT) {
     if (loading && !error) return <div style={{ padding: 24, color: "#c3a24a" }}>Preparando tu mesa…</div>;
     if (error) return <div style={{ padding: 24, color: "red" }}>{error}</div>;
@@ -115,9 +115,9 @@ const MesaPage: React.FC = () => {
             Inició: {started ? new Date(started).toLocaleString() : "—"}
           </div>
 
-          {/* Botón opcional para llevar al menú del cliente */}
+          {/* Ahora lleva al Dashboard */}
           <button
-            onClick={() => navigate("/menu")}
+            onClick={() => navigate("/")}
             style={{
               marginTop: 16,
               padding: "10px 14px",
@@ -128,7 +128,7 @@ const MesaPage: React.FC = () => {
               cursor: "pointer",
             }}
           >
-            Ir al menú
+            Ir al dashboard
           </button>
         </div>
       ) : (
