@@ -3,7 +3,7 @@ import api from "./api";
 export interface Categoria {
   _id: string;
   nombre: string;
-  imagen: string; // obligatorio para TS
+  imagen: string;
 }
 
 const apiCategorias = {
@@ -18,4 +18,3 @@ const apiCategorias = {
 };
 
 export default apiCategorias;
-export{}
