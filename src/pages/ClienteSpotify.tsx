@@ -1,60 +1,35 @@
 // src/pages/ClienteSpotify.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { musicClient } from "../services/musicClient";
 
-// -------- Utils --------
+/* ---------- Utils ---------- */
 function msToMinSec(ms?: number) {
-  if (ms == null) return "--:--";
+  if (ms == null || Number.isNaN(ms)) return "--:--";
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
-
-function useInterval(cb: () => void, ms: number | null) {
-  const ref = useRef(cb);
-  useEffect(() => { ref.current = cb; }, [cb]);
-  useEffect(() => {
-    if (ms == null) return;
-    const id = setInterval(() => ref.current(), ms);
-    return () => clearInterval(id);
-  }, [ms]);
+function firstUrlFromArray(arr: any[]): string | undefined {
+  if (!Array.isArray(arr)) return undefined;
+  for (const x of arr) {
+    if (typeof x === "string" && x) return x;
+    if (x && typeof x.url === "string" && x.url) return x.url;
+  }
+  return undefined;
 }
 
-// -------- Tipos mínimos --------
-type RequestDoc = {
-  _id: string;
-  trackUri: string;
-  title: string;
-  artist: string;
-  imageUrl?: string;
-  status: "queued" | "approved" | "playing" | "rejected" | "done";
-  createdAt: string;
-};
-
-// Normaliza un item de búsqueda a un formato común
+/* Normaliza un item de búsqueda a un formato común */
 function parseTrackItem(raw: any) {
-  // Posibles ubicaciones de id y uri
   const id =
-    raw?.id ||
-    raw?.track?.id ||
-    raw?.data?.id ||
-    raw?.data?.uid ||
-    undefined;
+    raw?.id || raw?.track?.id || raw?.data?.id || raw?.data?.uid || undefined;
 
   const uriRaw =
-    raw?.uri ||
-    raw?.data?.uri ||
-    raw?.track?.uri ||
-    raw?.trackUri || // muchos backends ya normalizan así
-    undefined;
+    raw?.uri || raw?.data?.uri || raw?.track?.uri || raw?.trackUri || undefined;
 
-  // Si no hay uri, podemos construirla con el id
-  const uri =
-    uriRaw ||
-    (id ? `spotify:track:${id}` : "");
+  const uri = uriRaw || (id ? `spotify:track:${id}` : "");
 
-  // URL pública de Spotify (si viene)
   const extUrl =
     raw?.external_urls?.spotify ||
     raw?.track?.external_urls?.spotify ||
@@ -62,11 +37,7 @@ function parseTrackItem(raw: any) {
     undefined;
 
   const name =
-    raw?.name ||
-    raw?.data?.name ||
-    raw?.track?.name ||
-    raw?.title ||
-    "";
+    raw?.name || raw?.data?.name || raw?.track?.name || raw?.title || "";
 
   const artistNames =
     (raw?.artists?.map((a: any) => a?.name).join(", ")) ||
@@ -75,31 +46,54 @@ function parseTrackItem(raw: any) {
     raw?.artist ||
     "";
 
-  const images =
+  // Intentos para encontrar cover
+  const imgCandidates =
     raw?.album?.images ||
     raw?.track?.album?.images ||
     raw?.images ||
+    raw?.imageArray ||
     raw?.data?.albumOfTrack?.coverArt?.sources ||
+    raw?.coverArt?.sources ||
+    raw?.covers ||
     [];
 
   const imageUrl =
-    images?.[0]?.url ||
-    (typeof images?.[0]?.url === "string" ? images[0].url : undefined);
+    raw?.imageUrl ||
+    raw?.albumImageUrl ||
+    firstUrlFromArray(imgCandidates) ||
+    raw?.cover?.url ||
+    raw?.picture ||
+    undefined;
 
-  const duration_ms =
+  // Duración: múltiples formatos
+  let duration_ms: number | undefined =
     raw?.duration_ms ??
     raw?.track?.duration_ms ??
     raw?.data?.duration?.totalMilliseconds ??
+    raw?.duration?.totalMilliseconds ??
     undefined;
 
-  return { id, uri, url: extUrl, name, artistNames, imageUrl, duration_ms, raw };
+  if (duration_ms == null) {
+    // a veces viene duration en segundos
+    const sec =
+      raw?.duration_seconds ??
+      raw?.durationSec ??
+      (typeof raw?.duration === "number" ? raw.duration : undefined);
+    if (typeof sec === "number") duration_ms = sec * 1000;
+  }
+  if (typeof duration_ms === "string") {
+    const n = Number(duration_ms);
+    duration_ms = Number.isFinite(n) ? n : undefined;
+  }
+
+  return { id, uri, url: extUrl, name, artistNames, imageUrl, duration_ms };
 }
 
-// -------- Estilos --------
+/* ---------- Estilos estáticos ---------- */
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
-    padding: "28px 16px 60px",
+    padding: "20px 12px 70px",
     color: "#c3a24a",
     fontFamily: "'Orbitron', sans-serif",
     position: "relative",
@@ -112,8 +106,9 @@ const styles: Record<string, React.CSSProperties> = {
       "url('https://images.unsplash.com/photo-1597290282695-edc43d0e7129?q=80&w=1475&auto=format&fit=crop')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    filter: "blur(2px) brightness(0.6) contrast(0.95)",
-    zIndex: -1,
+    // Igual que el Dashboard:
+    filter: "blur(1px) brightness(0.75) contrast(1)",
+    zIndex: -2,
   },
   overlay: {
     content: "''",
@@ -123,9 +118,29 @@ const styles: Record<string, React.CSSProperties> = {
       "radial-gradient(ellipse at 50% 30%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.7) 100%)",
     zIndex: -1,
   },
+  headerWrap: {
+    position: "relative",
+    maxWidth: 960,
+    margin: "0 auto 8px",
+  },
+  backBtn: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    background: "rgba(12,12,12,0.35)",
+    color: "#c3a24a",
+    padding: "10px 14px",
+    border: "1px solid rgba(195,162,74,0.4)",
+    borderRadius: "10px",
+    fontSize: "0.95rem",
+    fontWeight: 700,
+    cursor: "pointer",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+    textDecoration: "none",
+  },
   title: {
     textAlign: "center",
-    fontSize: "2.2rem",
+    fontSize: "2rem",
     fontWeight: 800,
     color: "rgba(255, 215, 128, 0.9)",
     marginBottom: 6,
@@ -135,11 +150,11 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: {
     textAlign: "center",
     color: "rgba(255,255,255,0.85)",
-    marginBottom: 18,
+    marginBottom: 16,
     fontSize: "0.95rem",
   },
   card: {
-    maxWidth: 900,
+    maxWidth: 960,
     margin: "0 auto",
     background: "rgba(12,12,12,0.35)",
     backdropFilter: "blur(6px)",
@@ -147,23 +162,24 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(195,162,74,0.35)",
     borderRadius: 14,
     boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-    padding: 16,
+    padding: 12,
   },
   row: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
   input: {
     flex: "1 1 360px",
-    minWidth: 260,
+    minWidth: 0,
     padding: "12px 14px",
     background: "rgba(0,0,0,0.5)",
     color: "#e6d8a8",
     border: "1px solid rgba(195,162,74,0.35)",
     borderRadius: 10,
     outline: "none",
+    fontSize: "16px", // evita zoom en iOS
   },
   button: {
     background: "rgba(12,12,12,0.35)",
     color: "#c3a24a",
-    padding: "10px 16px",
+    padding: "10px 14px",
     border: "1px solid rgba(195,162,74,0.4)",
     borderRadius: 12,
     fontSize: "0.95rem",
@@ -172,7 +188,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
   },
   small: { fontSize: "0.85rem", color: "rgba(255,255,255,0.9)" },
-  list: { marginTop: 12 },
+  list: { marginTop: 10 },
   itemRow: {
     display: "grid",
     gridTemplateColumns: "auto 1fr auto",
@@ -193,22 +209,47 @@ const styles: Record<string, React.CSSProperties> = {
   },
   titleArtist: { fontWeight: 800 },
   sub: { opacity: 0.85 },
-  statusCard: {
-    maxWidth: 900,
-    margin: "14px auto 0",
-    padding: 14,
-    borderRadius: 12,
-    border: "1px solid rgba(195,162,74,0.4)",
-    background: "rgba(12,12,12,0.35)",
-  },
   error: { marginTop: 10, color: "#ffb3b3" },
 };
 
-// -------- Página --------
-const ClienteSpotify: React.FC<{
-  sessionId?: string; // si no lo pasas, intenta leer de localStorage
-  mesaId?: string;    // idem
-}> = ({ sessionId: sessionIdProp, mesaId: mesaIdProp }) => {
+/* ---------- Helpers de estilo dinámico ---------- */
+const styleEntrance = (visible: boolean): React.CSSProperties => ({
+  opacity: visible ? 1 : 0,
+  transform: visible ? "translateY(0)" : "translateY(16px)",
+  transition: "opacity .35s ease, transform .35s ease",
+});
+
+const styleToast = (visible: boolean): React.CSSProperties => ({
+  position: "fixed",
+  left: "50%",
+  bottom: 18,
+  transform: `translateX(-50%) ${visible ? "translateY(0)" : "translateY(10px)"}`,
+  opacity: visible ? 1 : 0,
+  transition: "opacity .25s ease, transform .25s ease",
+  background: "rgba(12,12,12,0.7)",
+  color: "#f8e7b3",
+  border: "1px solid rgba(195,162,74,0.55)",
+  padding: "10px 14px",
+  borderRadius: 12,
+  boxShadow: "0 8px 22px rgba(0,0,0,0.45)",
+  zIndex: 5,
+  maxWidth: "92vw",
+  textAlign: "center",
+});
+
+/* ---------- Página ---------- */
+const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
+  sessionId: sessionIdProp,
+  mesaId: mesaIdProp,
+}) => {
+  const navigate = useNavigate();
+
+  // Animación de entrada
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    requestAnimationFrame(() => setEntered(true));
+  }, []);
+
   // Identidad del cliente
   const [sessionId, setSessionId] = useState<string>("");
   const [mesaId, setMesaId] = useState<string | undefined>(undefined);
@@ -226,10 +267,14 @@ const ClienteSpotify: React.FC<{
   const [results, setResults] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // Pedido hecho
-  const [lastRequest, setLastRequest] = useState<RequestDoc | null>(null);
-  const [position, setPosition] = useState<number | null>(null);
-  const [totalActive, setTotalActive] = useState<number>(0);
+  // Toast
+  const [toastText, setToastText] = useState<string>("");
+  const [toastVisible, setToastVisible] = useState(false);
+  const showToast = (text: string) => {
+    setToastText(text);
+    setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 3500);
+  };
 
   // Buscar con debounce
   useEffect(() => {
@@ -241,8 +286,6 @@ const ClienteSpotify: React.FC<{
       try {
         setSearching(true);
         const r: any = await musicClient.search(q, "CO");
-
-        // Acepta diferentes estructuras
         const rawItems =
           r?.items ||
           r?.tracks?.items ||
@@ -250,7 +293,6 @@ const ClienteSpotify: React.FC<{
           r?.results ||
           r?.data?.tracks?.items ||
           [];
-
         setResults(Array.isArray(rawItems) ? rawItems : []);
       } catch (e: any) {
         setErr(e?.message || "No se pudo buscar");
@@ -262,34 +304,25 @@ const ClienteSpotify: React.FC<{
     return () => clearTimeout(id);
   }, [q]);
 
-  // Calcular posición global (cola de solicitudes activas)
+  // Calcula posición en la cola de solicitudes activas
   const calcPosition = async (reqId: string) => {
-    try {
-      const list: any = await musicClient.activeRequests();
-      const items: RequestDoc[] = list?.items || [];
-      const idx = items.findIndex((x) => x._id === reqId);
-      setTotalActive(list?.total ?? items.length ?? 0);
-      setPosition(idx >= 0 ? idx + 1 : null);
-    } catch (e: any) {
-      setErr(e?.message || "No se pudo calcular la posición");
-    }
+    const list: any = await musicClient.activeRequests();
+    const items: any[] = list?.items || [];
+    const idx = items.findIndex((x) => x._id === reqId);
+    const pos = idx >= 0 ? idx + 1 : null;
+    const total = list?.total ?? items.length ?? 0;
+    return { pos, total };
   };
 
-  // Poll para refrescar posición si hay pedido en curso
-  useInterval(() => {
-    if (lastRequest?._id) calcPosition(lastRequest._id);
-  }, lastRequest?._id ? 5000 : null);
-
+  // Pedir canción
   const pedirCancion = async (t: any) => {
     setErr(null);
     if (!sessionId) {
-      setErr("No hay sesión activa. Pídele al staff que abra tu mesa.");
+      showToast("No hay sesión activa. Pídele al staff que abra tu mesa.");
       return;
     }
 
     const p = parseTrackItem(t);
-
-    // Construimos payload con múltiples alternativas aceptadas por el backend
     const payload: any = {
       sessionId,
       mesaId,
@@ -298,7 +331,6 @@ const ClienteSpotify: React.FC<{
       imageUrl: p.imageUrl,
     };
 
-    // damos prioridad a trackUri si luce válida
     if (p.uri && /^spotify:track:[A-Za-z0-9]+$/.test(p.uri)) {
       payload.trackUri = p.uri;
     } else if (p.id && /^[A-Za-z0-9]+$/.test(p.id)) {
@@ -306,28 +338,31 @@ const ClienteSpotify: React.FC<{
     } else if (p.url && /open\.spotify\.com\/track\//i.test(p.url)) {
       payload.trackUrl = p.url;
     } else if (p.uri && p.uri.startsWith("spotify:track:")) {
-      // por si viene spotify:track: (sin id), intentamos extraer ID del raw
       const guessedId = p.uri.split(":")[2];
       if (guessedId) payload.trackId = guessedId;
     }
 
     try {
       const resp: any = await musicClient.createRequest(payload);
-      const doc: RequestDoc | undefined = resp?.request;
+      const doc = resp?.request;
       if (!doc) throw new Error("Respuesta inesperada del servidor");
 
-      setLastRequest(doc);
-      await calcPosition(doc._id);
-      // Limpia la búsqueda
+      const { pos, total } = await calcPosition(doc._id);
+      showToast(
+        pos
+          ? `Tu canción ha sido agregada a la cola de reproducción. Posición #${pos} de ${total}.`
+          : "Tu canción ha sido agregada a la cola de reproducción."
+      );
+
+      // Limpia búsqueda/resultados
       setQ("");
       setResults([]);
     } catch (e: any) {
-      // Intenta leer mensaje del backend si vino serializado
       try {
         const parsed = JSON.parse(e.message);
-        setErr(parsed?.msg || e.message);
+        showToast(parsed?.msg || e.message);
       } catch {
-        setErr(e?.message || "No se pudo crear la solicitud");
+        showToast(e?.message || "No se pudo crear la solicitud");
       }
     }
   };
@@ -337,23 +372,27 @@ const ClienteSpotify: React.FC<{
       <div style={styles.bg}></div>
       <div style={styles.overlay}></div>
 
-      <h1 style={styles.title}>Pide tu canción</h1>
-      <div style={styles.subtitle}>
-        Busca tu canción favorita, añádela a la cola del bar y mira tu posición.
+      <div style={styles.headerWrap}>
+        <button style={styles.backBtn} onClick={() => navigate("/")}>
+          ← Volver
+        </button>
+        <h1 style={{ ...styles.title, ...styleEntrance(true) }}>Pide tu canción</h1>
+        <div style={{ ...styles.subtitle, ...styleEntrance(true) }}>
+          Busca tu canción favorita, añádela a la cola del bar y mira tu posición.
+        </div>
       </div>
 
       {/* Buscador */}
-      <div style={styles.card}>
+      <div style={{ ...styles.card, ...styleEntrance(true) }}>
         <div style={styles.row}>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Busca por canción o artista…"
             style={styles.input}
+            inputMode="search"
+            autoComplete="off"
           />
-        </div>
-
-        <div style={{ ...styles.row, marginTop: 10 }}>
           <button style={styles.button} onClick={() => setQ("")}>
             Limpiar
           </button>
@@ -368,7 +407,13 @@ const ClienteSpotify: React.FC<{
             return (
               <div key={p.uri || p.id || i} style={styles.itemRow}>
                 {p.imageUrl ? (
-                  <img src={p.imageUrl} alt="" style={styles.cover} />
+                  <img
+                    src={p.imageUrl}
+                    alt=""
+                    style={styles.cover}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
                 ) : (
                   <div
                     style={{
@@ -405,22 +450,8 @@ const ClienteSpotify: React.FC<{
         {err && <div style={styles.error}>⚠️ {err}</div>}
       </div>
 
-      {/* Estado del último pedido */}
-      {lastRequest && (
-        <div style={styles.statusCard}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>
-            ¡Listo! Agregaste: {lastRequest.title} — {lastRequest.artist}
-          </div>
-          <div style={styles.small}>
-            {position !== null
-              ? <>Tu canción está en la posición <b>#{position}</b> de <b>{totalActive}</b> solicitudes activas.</>
-              : "Calculando posición…"}
-          </div>
-          <div style={{ ...styles.small, marginTop: 6 }}>
-            Estado: <b>{lastRequest.status}</b> (se actualiza automáticamente).
-          </div>
-        </div>
-      )}
+      {/* Toast */}
+      <div style={styleToast(toastVisible)}>{toastText}</div>
     </div>
   );
 };
