@@ -1,4 +1,3 @@
-// Dashboard.tsx (CLIENTE) — ajustado para usar la API nueva (default export + getActivas) e importar el tipo
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import apiPromocionesCliente from "../services/apiPromociones";
@@ -24,44 +23,43 @@ const Dashboard: React.FC = () => {
   }, []);
 
   // Cargar promociones activas desde el backend con fallbacks
-useEffect(() => {
-  let mounted = true;
+  useEffect(() => {
+    let mounted = true;
 
-  (async () => {
-    try {
-      // 1) activas vigentes (activeNow)
-      let items = await apiPromocionesCliente.getActivas(20, 1);
+    (async () => {
+      try {
+        // 1) activas vigentes (activeNow)
+        let items = await apiPromocionesCliente.getActivas(20, 1);
 
-      // 2) si no hay vigentes, intenta las activas (sin fechas)
-      if (mounted && (!items || items.length === 0)) {
-        items = await apiPromocionesCliente.getAll({ activa: true, limit: 20, page: 1 });
+        // 2) si no hay vigentes, intenta las activas (sin fechas)
+        if (mounted && (!items || items.length === 0)) {
+          items = await apiPromocionesCliente.getAll({ activa: true, limit: 20, page: 1 });
+        }
+
+        // 3) si sigue vacío, trae todas
+        if (mounted && (!items || items.length === 0)) {
+          items = await apiPromocionesCliente.getAll({ limit: 20, page: 1 });
+        }
+
+        if (!mounted) return;
+
+        setPromos(items || []);
+        setIdx(0);
+        requestAnimationFrame(() => setVisible(true)); // primer fade-in
+
+        console.debug("[promos] cargadas:", items?.length ?? 0);
+      } catch (e) {
+        console.debug("[promos] error:", e);
+        if (!mounted) return;
+        setPromos([]);
       }
+    })();
 
-      // 3) si sigue vacío, trae todas
-      if (mounted && (!items || items.length === 0)) {
-        items = await apiPromocionesCliente.getAll({ limit: 20, page: 1 });
-      }
-
-      if (!mounted) return;
-
-      setPromos(items || []);
-      setIdx(0);
-      requestAnimationFrame(() => setVisible(true)); // primer fade-in
-
-      console.debug("[promos] cargadas:", items?.length ?? 0);
-    } catch (e) {
-      console.debug("[promos] error:", e);
-      if (!mounted) return;
-      setPromos([]);
-    }
-  })();
-
-  return () => {
-    mounted = false;
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  };
-}, []);
-
+    return () => {
+      mounted = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
 
   // Rotación automática
   useEffect(() => {
@@ -295,7 +293,7 @@ useEffect(() => {
           style={{ ...buttonBase, ...(hoverSong ? hoverStyle : {}) }}
           onMouseEnter={() => setHoverSong(true)}
           onMouseLeave={() => setHoverSong(false)}
-          onClick={() => alert("Próximamente 🎶")}
+          onClick={() => handleNavigate("/musica")}
         >
           Elige tu Canción
         </button>
