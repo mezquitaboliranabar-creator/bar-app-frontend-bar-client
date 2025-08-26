@@ -13,9 +13,7 @@ function msToMinSec(ms?: number) {
 
 function useInterval(cb: () => void, ms: number | null) {
   const ref = useRef(cb);
-  useEffect(() => {
-    ref.current = cb;
-  }, [cb]);
+  useEffect(() => { ref.current = cb; }, [cb]);
   useEffect(() => {
     if (ms == null) return;
     const id = setInterval(() => ref.current(), ms);
@@ -36,11 +34,32 @@ type RequestDoc = {
 
 // Normaliza un item de búsqueda a un formato común
 function parseTrackItem(raw: any) {
-  const uri =
+  // Posibles ubicaciones de id y uri
+  const id =
+    raw?.id ||
+    raw?.track?.id ||
+    raw?.data?.id ||
+    raw?.data?.uid ||
+    undefined;
+
+  const uriRaw =
     raw?.uri ||
     raw?.data?.uri ||
     raw?.track?.uri ||
-    (raw?.id ? `spotify:track:${raw.id}` : "");
+    raw?.trackUri || // muchos backends ya normalizan así
+    undefined;
+
+  // Si no hay uri, podemos construirla con el id
+  const uri =
+    uriRaw ||
+    (id ? `spotify:track:${id}` : "");
+
+  // URL pública de Spotify (si viene)
+  const extUrl =
+    raw?.external_urls?.spotify ||
+    raw?.track?.external_urls?.spotify ||
+    raw?.externalUrl ||
+    undefined;
 
   const name =
     raw?.name ||
@@ -73,7 +92,7 @@ function parseTrackItem(raw: any) {
     raw?.data?.duration?.totalMilliseconds ??
     undefined;
 
-  return { uri, name, artistNames, imageUrl, duration_ms };
+  return { id, uri, url: extUrl, name, artistNames, imageUrl, duration_ms, raw };
 }
 
 // -------- Estilos --------
@@ -188,7 +207,7 @@ const styles: Record<string, React.CSSProperties> = {
 // -------- Página --------
 const ClienteSpotify: React.FC<{
   sessionId?: string; // si no lo pasas, intenta leer de localStorage
-  mesaId?: string; // idem
+  mesaId?: string;    // idem
 }> = ({ sessionId: sessionIdProp, mesaId: mesaIdProp }) => {
   // Identidad del cliente
   const [sessionId, setSessionId] = useState<string>("");
@@ -270,15 +289,30 @@ const ClienteSpotify: React.FC<{
 
     const p = parseTrackItem(t);
 
+    // Construimos payload con múltiples alternativas aceptadas por el backend
+    const payload: any = {
+      sessionId,
+      mesaId,
+      title: p.name || "—",
+      artist: p.artistNames || "—",
+      imageUrl: p.imageUrl,
+    };
+
+    // damos prioridad a trackUri si luce válida
+    if (p.uri && /^spotify:track:[A-Za-z0-9]+$/.test(p.uri)) {
+      payload.trackUri = p.uri;
+    } else if (p.id && /^[A-Za-z0-9]+$/.test(p.id)) {
+      payload.trackId = p.id;
+    } else if (p.url && /open\.spotify\.com\/track\//i.test(p.url)) {
+      payload.trackUrl = p.url;
+    } else if (p.uri && p.uri.startsWith("spotify:track:")) {
+      // por si viene spotify:track: (sin id), intentamos extraer ID del raw
+      const guessedId = p.uri.split(":")[2];
+      if (guessedId) payload.trackId = guessedId;
+    }
+
     try {
-      const resp: any = await musicClient.createRequest({
-        sessionId,
-        mesaId,
-        trackUri: p.uri,
-        title: p.name || "—",
-        artist: p.artistNames || "—",
-        imageUrl: p.imageUrl,
-      });
+      const resp: any = await musicClient.createRequest(payload);
       const doc: RequestDoc | undefined = resp?.request;
       if (!doc) throw new Error("Respuesta inesperada del servidor");
 
@@ -332,7 +366,7 @@ const ClienteSpotify: React.FC<{
           {results.slice(0, 12).map((t, i) => {
             const p = parseTrackItem(t);
             return (
-              <div key={p.uri || i} style={styles.itemRow}>
+              <div key={p.uri || p.id || i} style={styles.itemRow}>
                 {p.imageUrl ? (
                   <img src={p.imageUrl} alt="" style={styles.cover} />
                 ) : (
@@ -379,12 +413,7 @@ const ClienteSpotify: React.FC<{
           </div>
           <div style={styles.small}>
             {position !== null
-              ? (
-                <>
-                  Tu canción está en la posición <b>#{position}</b> de{" "}
-                  <b>{totalActive}</b> solicitudes activas.
-                </>
-                )
+              ? <>Tu canción está en la posición <b>#{position}</b> de <b>{totalActive}</b> solicitudes activas.</>
               : "Calculando posición…"}
           </div>
           <div style={{ ...styles.small, marginTop: 6 }}>
