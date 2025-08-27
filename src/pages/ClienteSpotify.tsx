@@ -173,7 +173,9 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       localStorage.removeItem("sessionId");
       localStorage.removeItem("mesaId");
     } catch {}
-    showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR.");
+    // Mensaje solicitado exacto
+    showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR de tu mesa.");
+    // Intento de cierre silencioso; si falla, queda el redirect
     window.setTimeout(attemptCloseTab, 1200);
     scheduleRedirectToDashboard();
   }, [showToast, scheduleRedirectToDashboard, attemptCloseTab]);
@@ -238,6 +240,51 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [sessionId, isSessionExpiredError, handleSessionExpired]);
+
+  /* ====== Cerrar sesión al cerrar pestaña/ventana ======
+     Usamos sendBeacon (ideal en pagehide) con fallback a fetch keepalive. */
+  const closeOnExitSentRef = useRef(false);
+  const closeSessionOnExit = useCallback(() => {
+    if (closeOnExitSentRef.current) return;
+    closeOnExitSentRef.current = true;
+    if (!sessionId) return;
+
+    const base = (process.env.REACT_APP_API_BASE_URL as string) || "";
+    const url = `${base}/api/sessions/${sessionId}/close`;
+    const payload = JSON.stringify({});
+
+    try {
+      if ("sendBeacon" in navigator) {
+        const blob = new Blob([payload], { type: "application/json" });
+        navigator.sendBeacon(url, blob);
+      } else {
+        // Fallback
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch {
+      // ignorar
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const onPageHide = () => closeSessionOnExit();
+    const onBeforeUnload = () => closeSessionOnExit();
+
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [sessionId, closeSessionOnExit]);
 
   // Buscar con debounce (mobile-first)
   useEffect(() => {
