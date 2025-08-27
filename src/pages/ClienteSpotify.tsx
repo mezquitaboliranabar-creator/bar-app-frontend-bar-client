@@ -108,6 +108,32 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     setMesaId(m);
   }, [sessionIdProp, mesaIdProp]);
 
+  // Handshake: habilitar cierre real de pestaña (solo una vez)
+  const [handshakeNeeded, setHandshakeNeeded] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("selfOpened") !== "1") {
+        setHandshakeNeeded(true);
+      }
+    } catch {
+      // si localStorage falla, continuamos sin handshake
+    }
+  }, []);
+  const performHandshake = useCallback(() => {
+    try {
+      const url = window.location.href; // reabrir misma URL
+      const w = window.open(url, "_blank");
+      if (w) {
+        localStorage.setItem("selfOpened", "1");
+        // Cerrar la pestaña original; la nueva continúa el flujo
+        window.close();
+        return;
+      }
+    } catch {}
+    // Si el navegador bloquea window.open, seguimos sin handshake
+    setHandshakeNeeded(false);
+  }, []);
+
   // Búsqueda
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
@@ -135,18 +161,15 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
   }, [navigate]);
 
-  // ======== NUEVO: intentar cerrar pestaña de forma segura ========
+  // Intentar cerrar pestaña (si fue abierta por script)
   const attemptCloseTab = useCallback(() => {
     try {
-      // Cierre estándar (solo funciona si la pestaña la abrió un script)
       window.close();
     } catch {}
-    // Intento alterno: iOS/Safari/standalone pueden requerir este patrón
     try {
       const w = window.open("", "_self");
       w?.close?.();
     } catch {}
-    // Si no se pudo cerrar, el fallback de redirect ya está programado
   }, []);
 
   // ---------- Helpers de sesión expirada ----------
@@ -170,24 +193,20 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     );
   }, []);
 
-  const handleSessionExpired = useCallback(
-    (msg?: string) => {
-      try {
-        localStorage.removeItem("sessionId");
-        localStorage.removeItem("mesaId");
-      } catch {}
-      // Mensaje solicitado:
-      const message = msg || "Sesión cerrada por inactividad. Vuelve a escanear el QR.";
-      showToast(message);
+  const handleSessionExpired = useCallback(() => {
+    try {
+      localStorage.removeItem("sessionId");
+      localStorage.removeItem("mesaId");
+    } catch {}
+    // Mensaje pedido textualmente:
+    showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR.");
 
-      // Intentar cerrar pestaña tras un pequeño delay para que el usuario vea el toast
-      window.setTimeout(attemptCloseTab, 1200);
+    // Intento cerrar pestaña tras un pequeño delay para que alcance a verse el toast
+    window.setTimeout(attemptCloseTab, 1200);
 
-      // Fallback: si el cierre es bloqueado por el navegador, redirige al dashboard
-      scheduleRedirectToDashboard();
-    },
-    [showToast, scheduleRedirectToDashboard, attemptCloseTab]
-  );
+    // Fallback: si el cierre es bloqueado por el navegador, redirige al dashboard
+    scheduleRedirectToDashboard();
+  }, [showToast, scheduleRedirectToDashboard, attemptCloseTab]);
 
   // Heartbeat/ping para mantener y validar la sesión
   useEffect(() => {
@@ -458,6 +477,28 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         <h1 className="cs-title">Pide tu canción</h1>
         <p className="cs-sub">Busca tu canción favorita, añádela a la cola del bar y mira tu posición.</p>
       </header>
+
+      {/* Overlay de handshake (solo una vez) */}
+      {handshakeNeeded && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            background: "rgba(0,0,0,.6)",
+            zIndex: 50,
+            padding: 16,
+          }}
+        >
+          <div className="cs-card" style={{ maxWidth: 480, textAlign: "center" }}>
+            <p className="cs-small" style={{ marginBottom: 12 }}>
+              Toca “Continuar” para habilitar el cierre automático de esta pestaña cuando la sesión termine.
+            </p>
+            <button className="cs-btn" onClick={performHandshake}>Continuar</button>
+          </div>
+        </div>
+      )}
 
       <section className="cs-card" role="search">
         <div className="cs-row">
