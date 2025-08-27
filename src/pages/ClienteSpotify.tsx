@@ -1,5 +1,5 @@
 // src/pages/ClienteSpotify.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { musicClient } from "../services/musicClient";
 
@@ -46,7 +46,6 @@ function parseTrackItem(raw: any) {
     raw?.artist ||
     "";
 
-  // Intentos para encontrar cover
   const imgCandidates =
     raw?.album?.images ||
     raw?.track?.album?.images ||
@@ -65,7 +64,6 @@ function parseTrackItem(raw: any) {
     raw?.picture ||
     undefined;
 
-  // Duración: múltiples formatos
   let duration_ms: number | undefined =
     raw?.duration_ms ??
     raw?.track?.duration_ms ??
@@ -74,7 +72,6 @@ function parseTrackItem(raw: any) {
     undefined;
 
   if (duration_ms == null) {
-    // a veces viene duration en segundos
     const sec =
       raw?.duration_seconds ??
       raw?.durationSec ??
@@ -89,153 +86,8 @@ function parseTrackItem(raw: any) {
   return { id, uri, url: extUrl, name, artistNames, imageUrl, duration_ms };
 }
 
-/* ---------- Estilos estáticos ---------- */
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    padding: "20px 12px 70px",
-    color: "#c3a24a",
-    fontFamily: "'Orbitron', sans-serif",
-    position: "relative",
-  },
-  bg: {
-    content: "''",
-    position: "fixed",
-    inset: 0,
-    backgroundImage:
-      "url('https://images.unsplash.com/photo-1597290282695-edc43d0e7129?q=80&w=1475&auto=format&fit=crop')",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    // Igual que el Dashboard:
-    filter: "blur(1px) brightness(0.75) contrast(1)",
-    zIndex: -2,
-  },
-  overlay: {
-    content: "''",
-    position: "fixed",
-    inset: 0,
-    background:
-      "radial-gradient(ellipse at 50% 30%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.7) 100%)",
-    zIndex: -1,
-  },
-  headerWrap: {
-    position: "relative",
-    maxWidth: 960,
-    margin: "0 auto 8px",
-  },
-  backBtn: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    background: "rgba(12,12,12,0.35)",
-    color: "#c3a24a",
-    padding: "10px 14px",
-    border: "1px solid rgba(195,162,74,0.4)",
-    borderRadius: "10px",
-    fontSize: "0.95rem",
-    fontWeight: 700,
-    cursor: "pointer",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-    textDecoration: "none",
-  },
-  title: {
-    textAlign: "center",
-    fontSize: "2rem",
-    fontWeight: 800,
-    color: "rgba(255, 215, 128, 0.9)",
-    marginBottom: 6,
-    textShadow:
-      "0 0 6px rgba(255,215,128,0.4), 0 0 12px rgba(255,215,128,0.3), 0 0 20px rgba(255,215,128,0.2)",
-  },
-  subtitle: {
-    textAlign: "center",
-    color: "rgba(255,255,255,0.85)",
-    marginBottom: 16,
-    fontSize: "0.95rem",
-  },
-  card: {
-    maxWidth: 960,
-    margin: "0 auto",
-    background: "rgba(12,12,12,0.35)",
-    backdropFilter: "blur(6px)",
-    WebkitBackdropFilter: "blur(6px)",
-    border: "1px solid rgba(195,162,74,0.35)",
-    borderRadius: 14,
-    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-    padding: 12,
-  },
-  row: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
-  input: {
-    flex: "1 1 360px",
-    minWidth: 0,
-    padding: "12px 14px",
-    background: "rgba(0,0,0,0.5)",
-    color: "#e6d8a8",
-    border: "1px solid rgba(195,162,74,0.35)",
-    borderRadius: 10,
-    outline: "none",
-    fontSize: "16px", // evita zoom en iOS
-  },
-  button: {
-    background: "rgba(12,12,12,0.35)",
-    color: "#c3a24a",
-    padding: "10px 14px",
-    border: "1px solid rgba(195,162,74,0.4)",
-    borderRadius: 12,
-    fontSize: "0.95rem",
-    fontWeight: 700,
-    cursor: "pointer",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-  },
-  small: { fontSize: "0.85rem", color: "rgba(255,255,255,0.9)" },
-  list: { marginTop: 10 },
-  itemRow: {
-    display: "grid",
-    gridTemplateColumns: "auto 1fr auto",
-    gap: 10,
-    alignItems: "center",
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(195,162,74,0.25)",
-    background: "rgba(0,0,0,0.35)",
-    marginBottom: 10,
-  },
-  cover: {
-    width: 52,
-    height: 52,
-    objectFit: "cover",
-    borderRadius: 8,
-    border: "1px solid rgba(195,162,74,0.25)",
-  },
-  titleArtist: { fontWeight: 800 },
-  sub: { opacity: 0.85 },
-  error: { marginTop: 10, color: "#ffb3b3" },
-};
-
-/* ---------- Helpers de estilo dinámico ---------- */
-const styleEntrance = (visible: boolean): React.CSSProperties => ({
-  opacity: visible ? 1 : 0,
-  transform: visible ? "translateY(0)" : "translateY(16px)",
-  transition: "opacity .35s ease, transform .35s ease",
-});
-
-const styleToast = (visible: boolean): React.CSSProperties => ({
-  position: "fixed",
-  left: "50%",
-  bottom: 18,
-  transform: `translateX(-50%) ${visible ? "translateY(0)" : "translateY(10px)"}`,
-  opacity: visible ? 1 : 0,
-  transition: "opacity .25s ease, transform .25s ease",
-  background: "rgba(12,12,12,0.7)",
-  color: "#f8e7b3",
-  border: "1px solid rgba(195,162,74,0.55)",
-  padding: "10px 14px",
-  borderRadius: 12,
-  boxShadow: "0 8px 22px rgba(0,0,0,0.45)",
-  zIndex: 5,
-  maxWidth: "92vw",
-  textAlign: "center",
-});
+/* ---------- Config ---------- */
+const REDIRECT_DELAY_MS = 3500;
 
 /* ---------- Página ---------- */
 const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
@@ -244,16 +96,9 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 }) => {
   const navigate = useNavigate();
 
-  // Animación de entrada
-  const [entered, setEntered] = useState(false);
-  useEffect(() => {
-    requestAnimationFrame(() => setEntered(true));
-  }, []);
-
   // Identidad del cliente
   const [sessionId, setSessionId] = useState<string>("");
   const [mesaId, setMesaId] = useState<string | undefined>(undefined);
-
   useEffect(() => {
     const s = sessionIdProp || localStorage.getItem("sessionId") || "";
     const m = mesaIdProp || localStorage.getItem("mesaId") || undefined;
@@ -267,22 +112,32 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   const [results, setResults] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // Toast
+  // Toast + redirección
   const [toastText, setToastText] = useState<string>("");
   const [toastVisible, setToastVisible] = useState(false);
+  const redirectTimeoutRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
+    };
+  }, []);
   const showToast = (text: string) => {
     setToastText(text);
     setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 3500);
+    window.setTimeout(() => setToastVisible(false), REDIRECT_DELAY_MS);
+  };
+  const scheduleRedirectToDashboard = () => {
+    if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
+    redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
   };
 
-  // Buscar con debounce
+  // Buscar con debounce (mobile-first: ligero)
   useEffect(() => {
     if (!q.trim()) {
       setResults([]);
       return;
     }
-    const id = setTimeout(async () => {
+    const id = window.setTimeout(async () => {
       try {
         setSearching(true);
         const r: any = await musicClient.search(q, "CO");
@@ -293,7 +148,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           r?.results ||
           r?.data?.tracks?.items ||
           [];
-        setResults(Array.isArray(rawItems) ? rawItems : []);
+        setResults(Array.isArray(rawItems) ? rawItems.slice(0, 12) : []);
       } catch (e: any) {
         setErr(e?.message || "No se pudo buscar");
         setResults([]);
@@ -301,10 +156,10 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         setSearching(false);
       }
     }, 350);
-    return () => clearTimeout(id);
+    return () => window.clearTimeout(id);
   }, [q]);
 
-  // Calcula posición en la cola de solicitudes activas
+  // Posición en la cola
   const calcPosition = async (reqId: string) => {
     const list: any = await musicClient.activeRequests();
     const items: any[] = list?.items || [];
@@ -321,7 +176,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       showToast("No hay sesión activa. Pídele al staff que abra tu mesa.");
       return;
     }
-
     const p = parseTrackItem(t);
     const payload: any = {
       sessionId,
@@ -330,14 +184,10 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       artist: p.artistNames || "—",
       imageUrl: p.imageUrl,
     };
-
-    if (p.uri && /^spotify:track:[A-Za-z0-9]+$/.test(p.uri)) {
-      payload.trackUri = p.uri;
-    } else if (p.id && /^[A-Za-z0-9]+$/.test(p.id)) {
-      payload.trackId = p.id;
-    } else if (p.url && /open\.spotify\.com\/track\//i.test(p.url)) {
-      payload.trackUrl = p.url;
-    } else if (p.uri && p.uri.startsWith("spotify:track:")) {
+    if (p.uri && /^spotify:track:[A-Za-z0-9]+$/.test(p.uri)) payload.trackUri = p.uri;
+    else if (p.id && /^[A-Za-z0-9]+$/.test(p.id)) payload.trackId = p.id;
+    else if (p.url && /open\.spotify\.com\/track\//i.test(p.url)) payload.trackUrl = p.url;
+    else if (p.uri && p.uri.startsWith("spotify:track:")) {
       const guessedId = p.uri.split(":")[2];
       if (guessedId) payload.trackId = guessedId;
     }
@@ -350,13 +200,13 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       const { pos, total } = await calcPosition(doc._id);
       showToast(
         pos
-          ? `Tu canción ha sido agregada a la cola de reproducción. Posición #${pos} de ${total}.`
-          : "Tu canción ha sido agregada a la cola de reproducción."
+          ? `Tu canción ha sido agregada. Posición #${pos} de ${total}.`
+          : "Tu canción ha sido agregada a la cola."
       );
 
-      // Limpia búsqueda/resultados
       setQ("");
       setResults([]);
+      scheduleRedirectToDashboard();
     } catch (e: any) {
       try {
         const parsed = JSON.parse(e.message);
@@ -368,71 +218,177 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.bg}></div>
-      <div style={styles.overlay}></div>
+    <div className="cs-page">
+      {/* estilos mobile-first embebidos */}
+      <style>{`
+        :root{
+          --gold:#c3a24a;
+          --ink:#0a0a0a;
+          --panel:rgba(12,12,12,0.35);
+          --soft:rgba(0,0,0,0.35);
+          --text:#e6d8a8;
+        }
+        .cs-page{
+          min-height:100svh;
+          padding:16px 10px 80px;
+          color:var(--gold);
+          font-family:'Orbitron',sans-serif;
+          position:relative;
+          overflow-x:hidden;
+        }
+        .cs-bg{
+          position:fixed; inset:0;
+          background-image:url('https://images.unsplash.com/photo-1597290282695-edc43d0e7129?q=80&w=1475&auto=format&fit=crop');
+          background-size:cover; background-position:center;
+          filter:blur(1.5px) brightness(.78) contrast(1);
+          z-index:-2;
+        }
+        .cs-overlay{
+          position:fixed; inset:0;
+          background:radial-gradient(ellipse at 50% 30%, rgba(0,0,0,.25) 0%, rgba(0,0,0,.55) 60%, rgba(0,0,0,.72) 100%);
+          z-index:-1;
+        }
+        .cs-header{ width:100%; max-width:640px; margin:0 auto 10px; }
+        .cs-title{
+          text-align:center; font-size:1.6rem; line-height:1.2; font-weight:800;
+          color:rgba(255,215,128,.92); margin:0 0 6px;
+          text-shadow:0 0 6px rgba(255,215,128,.4),0 0 12px rgba(255,215,128,.3),0 0 20px rgba(255,215,128,.2);
+        }
+        .cs-sub{ text-align:center; color:rgba(255,255,255,.88); font-size:.95rem; margin-bottom:14px; }
+        .cs-card{
+          width:100%; max-width:640px; margin:0 auto;
+          background:var(--panel); backdrop-filter:blur(6px);
+          border:1px solid rgba(195,162,74,.35);
+          border-radius:14px; box-shadow:0 6px 16px var(--soft);
+          padding:12px;
+        }
+        .cs-row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .cs-input{
+          flex:1 1 100%; min-width:0; padding:14px 14px;
+          background:rgba(0,0,0,.5); color:var(--text);
+          border:1px solid rgba(195,162,74,.35); border-radius:12px;
+          outline:none; font-size:16px; /* evita zoom iOS */
+        }
+        .cs-actions{ display:flex; align-items:center; gap:10px; width:100%; }
+        .cs-btn{
+          appearance:none; -webkit-appearance:none;
+          background:var(--panel); color:var(--gold);
+          padding:12px 16px; border:1px solid rgba(195,162,74,.4);
+          border-radius:12px; font-size:1rem; font-weight:700;
+          cursor:pointer; box-shadow:0 6px 16px var(--soft);
+          min-height:44px; /* touch target */
+        }
+        .cs-small{ font-size:.9rem; color:rgba(255,255,255,.9); }
+        .cs-list{ margin-top:10px; display:grid; gap:10px; }
+        .cs-item{
+          display:grid; grid-template-columns:auto 1fr auto;
+          gap:10px; align-items:center; padding:10px;
+          border-radius:12px; border:1px solid rgba(195,162,74,.25);
+          background:rgba(0,0,0,.35);
+          min-height:64px;
+        }
+        .cs-cover{
+          width:56px; height:56px; object-fit:cover;
+          border-radius:10px; border:1px solid rgba(195,162,74,.25);
+        }
+        .cs-titleArtist{ font-weight:800; }
+        .cs-subline{ opacity:.9; }
+        .cs-err{ margin-top:10px; color:#ffb3b3; }
+        .cs-toast{
+          position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+          background:rgba(12,12,12,.72); color:#f8e7b3;
+          border:1px solid rgba(195,162,74,.55); padding:10px 14px;
+          border-radius:12px; box-shadow:0 8px 22px rgba(0,0,0,.45);
+          max-width:92vw; text-align:center; z-index:5;
+          transition:opacity .25s ease, transform .25s ease;
+        }
+        .cs-toast.hide{ opacity:0; transform:translate(-50%, 10px); }
+        /* ------ Mejora progresiva (tablets/escritorio) ------ */
+        @media (min-width: 640px){
+          .cs-title{ font-size:1.9rem; }
+          .cs-card{ padding:14px; }
+          .cs-input{ flex:1 1 360px; }
+          .cs-actions{ width:auto; }
+        }
+        @media (min-width: 960px){
+          .cs-header, .cs-card{ max-width:900px; }
+          .cs-title{ font-size:2.2rem; }
+          .cs-item{ padding:12px; }
+          .cs-cover{ width:60px; height:60px; }
+        }
+      `}</style>
 
-      <div style={styles.headerWrap}>
-        <button style={styles.backBtn} onClick={() => navigate("/")}>
-          ← Volver
-        </button>
-        <h1 style={{ ...styles.title, ...styleEntrance(true) }}>Pide tu canción</h1>
-        <div style={{ ...styles.subtitle, ...styleEntrance(true) }}>
-          Busca tu canción favorita, añádela a la cola del bar y mira tu posición.
-        </div>
-      </div>
+      <div className="cs-bg" aria-hidden="true" />
+      <div className="cs-overlay" aria-hidden="true" />
 
-      {/* Buscador */}
-      <div style={{ ...styles.card, ...styleEntrance(true) }}>
-        <div style={styles.row}>
+      <header className="cs-header">
+        <h1 className="cs-title">Pide tu canción</h1>
+        <p className="cs-sub">Busca tu canción favorita, añádela a la cola del bar y mira tu posición.</p>
+      </header>
+
+      <section className="cs-card" role="search">
+        <div className="cs-row">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Busca por canción o artista…"
-            style={styles.input}
+            className="cs-input"
             inputMode="search"
             autoComplete="off"
+            aria-label="Buscar canción o artista"
           />
-          <button style={styles.button} onClick={() => setQ("")}>
-            Limpiar
-          </button>
-          <div style={styles.small}>
-            {searching ? "Buscando…" : results.length ? `${results.length} resultados` : "—"}
+          <div className="cs-actions">
+            <button className="cs-btn" onClick={() => setQ("")} aria-label="Limpiar búsqueda">
+              Limpiar
+            </button>
+            <div className="cs-small" aria-live="polite">
+              {searching ? "Buscando…" : results.length ? `${results.length} resultados` : "—"}
+            </div>
           </div>
         </div>
 
-        <div style={styles.list}>
-          {results.slice(0, 12).map((t, i) => {
+        <div className="cs-list">
+          {results.map((t, i) => {
             const p = parseTrackItem(t);
             return (
-              <div key={p.uri || p.id || i} style={styles.itemRow}>
+              <div key={p.uri || p.id || i} className="cs-item">
                 {p.imageUrl ? (
                   <img
                     src={p.imageUrl}
                     alt=""
-                    style={styles.cover}
+                    className="cs-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
                   <div
+                    className="cs-cover"
                     style={{
-                      ...styles.cover,
                       display: "grid",
                       placeItems: "center",
-                      color: "rgba(255,255,255,0.6)",
+                      color: "rgba(255,255,255,0.7)",
+                      fontSize: "1.2rem",
                     }}
+                    aria-hidden="true"
                   >
                     ♪
                   </div>
                 )}
+
                 <div>
-                  <div style={styles.titleArtist}>{p.name || "—"}</div>
-                  <div style={styles.sub}>{p.artistNames || "—"}</div>
+                  <div className="cs-titleArtist">{p.name || "—"}</div>
+                  <div className="cs-subline">{p.artistNames || "—"}</div>
                 </div>
+
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={styles.small}>{msToMinSec(p.duration_ms)}</div>
-                  <button style={styles.button} onClick={() => pedirCancion(t)}>
+                  <div className="cs-small" style={{ minWidth: 56, textAlign: "right" }}>
+                    {msToMinSec(p.duration_ms)}
+                  </div>
+                  <button
+                    className="cs-btn"
+                    onClick={() => pedirCancion(t)}
+                    aria-label={`Pedir ${p.name || "canción"} de ${p.artistNames || "artista"}`}
+                  >
                     Pedir
                   </button>
                 </div>
@@ -441,17 +397,19 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           })}
 
           {!searching && results.length === 0 && q.trim() && (
-            <div style={{ ...styles.small, marginTop: 10 }}>
+            <div className="cs-small" style={{ marginTop: 10 }}>
               No encontramos canciones para “{q}”. Intenta con otro término.
             </div>
           )}
         </div>
 
-        {err && <div style={styles.error}>⚠️ {err}</div>}
-      </div>
+        {err && <div className="cs-err">⚠️ {err}</div>}
+      </section>
 
       {/* Toast */}
-      <div style={styleToast(toastVisible)}>{toastText}</div>
+      <div className={`cs-toast ${toastVisible ? "" : "hide"}`} role="status" aria-live="polite">
+        {toastText}
+      </div>
     </div>
   );
 };
