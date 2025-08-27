@@ -90,6 +90,7 @@ function parseTrackItem(raw: any) {
 /* ---------- Config ---------- */
 const REDIRECT_DELAY_MS = 3500;
 const HEARTBEAT_MS = 70_000; // ~70s
+const USER_ACTIVE_WINDOW_MS = 90_000; // si no hubo interacción en 90s, no ping
 
 /* ---------- Página ---------- */
 const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
@@ -172,19 +173,42 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       localStorage.removeItem("sessionId");
       localStorage.removeItem("mesaId");
     } catch {}
-    // Mensaje limpio solicitado:
     showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR.");
-    // Intento de cierre silencioso; si falla, queda el redirect
     window.setTimeout(attemptCloseTab, 1200);
     scheduleRedirectToDashboard();
   }, [showToast, scheduleRedirectToDashboard, attemptCloseTab]);
 
-  // Heartbeat/ping para mantener y validar la sesión
+  /* ====== Heartbeat/ping: SOLO si hay interacción reciente y la pestaña está visible ====== */
+  const lastInteractionRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    // Marcar interacción real del usuario
+    const mark = () => { lastInteractionRef.current = Date.now(); };
+    window.addEventListener("pointerdown", mark, { passive: true });
+    window.addEventListener("keydown", mark);
+    window.addEventListener("touchstart", mark, { passive: true });
+    window.addEventListener("focus", mark);
+
+    return () => {
+      window.removeEventListener("pointerdown", mark);
+      window.removeEventListener("keydown", mark);
+      window.removeEventListener("touchstart", mark);
+      window.removeEventListener("focus", mark);
+    };
+  }, []);
+
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
 
     const doPing = async () => {
+      if (!sessionId) return;
+      // No mantener viva si pestaña oculta
+      if (document.hidden) return;
+      // No ping si no hubo interacción reciente
+      const idleFor = Date.now() - lastInteractionRef.current;
+      if (idleFor > USER_ACTIVE_WINDOW_MS) return;
+
       try {
         if (typeof (apiSessions as any)?.ping === "function") {
           await (apiSessions as any).ping(sessionId);
@@ -195,22 +219,17 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         if (cancelled) return;
         if (isSessionExpiredError(e)) {
           handleSessionExpired();
-        } else {
-          // errores de red temporales: ignorar
         }
       }
     };
 
-    // ping inicial
-    doPing();
+    // Ping inicial si visible
+    if (!document.hidden) doPing();
 
-    // intervalo
     const intervalId = window.setInterval(doPing, HEARTBEAT_MS);
 
-    // revalidar al volver a la pestaña
-    const onVis = () => {
-      if (!document.hidden) doPing();
-    };
+    // Revalidar al volver visible (aunque no haya interacción, para detectar expiración)
+    const onVis = () => { if (!document.hidden) doPing(); };
     document.addEventListener("visibilitychange", onVis);
 
     return () => {
