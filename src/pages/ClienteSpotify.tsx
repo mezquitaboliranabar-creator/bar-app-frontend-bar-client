@@ -89,8 +89,8 @@ function parseTrackItem(raw: any) {
 
 /* ---------- Config ---------- */
 const REDIRECT_DELAY_MS = 3500;
-const HEARTBEAT_MS = 70_000; // ~70s
-const USER_ACTIVE_WINDOW_MS = 90_000; // si no hubo interacción en 90s, no ping
+const HEARTBEAT_MS = 70_000;        // ~70s
+const CLOSE_DELAY_MS = 1200;        // cerrar/blank tras mostrar el toast
 
 /* ---------- Página ---------- */
 const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
@@ -115,7 +115,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   const [results, setResults] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // Toast + redirección
+  // Toast
   const [toastText, setToastText] = useState<string>("");
   const [toastVisible, setToastVisible] = useState(false);
   const redirectTimeoutRef = useRef<number | null>(null);
@@ -131,20 +131,22 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     window.setTimeout(() => setToastVisible(false), REDIRECT_DELAY_MS);
   }, []);
 
-  const scheduleRedirectToDashboard = useCallback(() => {
-    if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
-    redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
-  }, [navigate]);
-
-  // Intentar cerrar pestaña (silencioso; si no se puede, no molesta)
-  const attemptCloseTab = useCallback(() => {
-    try {
-      window.close();
-    } catch {}
+  // ======= NUEVO: cierre fuerte o, si no se puede, dejar la pestaña en blanco =======
+  const forceCloseOrBlank = useCallback(() => {
+    try { (window as any).opener = null; } catch {}
+    try { window.close(); } catch {}
+    try { (window as any).top?.close?.(); } catch {}
     try {
       const w = window.open("", "_self");
       w?.close?.();
     } catch {}
+    // Fallback universal: reemplaza la pestaña por about:blank y elimina el historial de esta vista
+    try {
+      window.location.replace("about:blank");
+    } catch {
+      // último recurso
+      window.location.href = "about:blank";
+    }
   }, []);
 
   // ---------- Helpers de sesión expirada ----------
@@ -173,44 +175,20 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       localStorage.removeItem("sessionId");
       localStorage.removeItem("mesaId");
     } catch {}
-    // Mensaje solicitado exacto
+
+    // Mensaje suave para el usuario
     showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR de tu mesa.");
-    // Intento de cierre silencioso; si falla, queda el redirect
-    window.setTimeout(attemptCloseTab, 1200);
-    scheduleRedirectToDashboard();
-  }, [showToast, scheduleRedirectToDashboard, attemptCloseTab]);
 
-  /* ====== Heartbeat/ping: SOLO si hay interacción reciente y la pestaña está visible ====== */
-  const lastInteractionRef = useRef<number>(Date.now());
+    // Intento de cierre total; si el navegador no lo permite, deja la pestaña completamente en blanco
+    window.setTimeout(forceCloseOrBlank, CLOSE_DELAY_MS);
+  }, [showToast, forceCloseOrBlank]);
 
-  useEffect(() => {
-    // Marcar interacción real del usuario
-    const mark = () => { lastInteractionRef.current = Date.now(); };
-    window.addEventListener("pointerdown", mark, { passive: true });
-    window.addEventListener("keydown", mark);
-    window.addEventListener("touchstart", mark, { passive: true });
-    window.addEventListener("focus", mark);
-
-    return () => {
-      window.removeEventListener("pointerdown", mark);
-      window.removeEventListener("keydown", mark);
-      window.removeEventListener("touchstart", mark);
-      window.removeEventListener("focus", mark);
-    };
-  }, []);
-
+  // Heartbeat/ping para mantener y validar la sesión
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
 
     const doPing = async () => {
-      if (!sessionId) return;
-      // No mantener viva si pestaña oculta
-      if (document.hidden) return;
-      // No ping si no hubo interacción reciente
-      const idleFor = Date.now() - lastInteractionRef.current;
-      if (idleFor > USER_ACTIVE_WINDOW_MS) return;
-
       try {
         if (typeof (apiSessions as any)?.ping === "function") {
           await (apiSessions as any).ping(sessionId);
@@ -221,17 +199,22 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         if (cancelled) return;
         if (isSessionExpiredError(e)) {
           handleSessionExpired();
+        } else {
+          // errores de red temporales: ignorar
         }
       }
     };
 
-    // Ping inicial si visible
-    if (!document.hidden) doPing();
+    // ping inicial
+    doPing();
 
+    // intervalo
     const intervalId = window.setInterval(doPing, HEARTBEAT_MS);
 
-    // Revalidar al volver visible (aunque no haya interacción, para detectar expiración)
-    const onVis = () => { if (!document.hidden) doPing(); };
+    // revalidar al volver a la pestaña
+    const onVis = () => {
+      if (!document.hidden) doPing();
+    };
     document.addEventListener("visibilitychange", onVis);
 
     return () => {
@@ -240,51 +223,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [sessionId, isSessionExpiredError, handleSessionExpired]);
-
-  /* ====== Cerrar sesión al cerrar pestaña/ventana ======
-     Usamos sendBeacon (ideal en pagehide) con fallback a fetch keepalive. */
-  const closeOnExitSentRef = useRef(false);
-  const closeSessionOnExit = useCallback(() => {
-    if (closeOnExitSentRef.current) return;
-    closeOnExitSentRef.current = true;
-    if (!sessionId) return;
-
-    const base = (process.env.REACT_APP_API_BASE_URL as string) || "";
-    const url = `${base}/api/sessions/${sessionId}/close`;
-    const payload = JSON.stringify({});
-
-    try {
-      if ("sendBeacon" in navigator) {
-        const blob = new Blob([payload], { type: "application/json" });
-        navigator.sendBeacon(url, blob);
-      } else {
-        // Fallback
-        fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true,
-        }).catch(() => {});
-      }
-    } catch {
-      // ignorar
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-
-    const onPageHide = () => closeSessionOnExit();
-    const onBeforeUnload = () => closeSessionOnExit();
-
-    window.addEventListener("pagehide", onPageHide);
-    window.addEventListener("beforeunload", onBeforeUnload);
-
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      window.removeEventListener("beforeunload", onBeforeUnload);
-    };
-  }, [sessionId, closeSessionOnExit]);
 
   // Buscar con debounce (mobile-first)
   useEffect(() => {
@@ -361,7 +299,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
       setQ("");
       setResults([]);
-      scheduleRedirectToDashboard();
+      // (Cuando el usuario termina su acción, mantenemos la UX actual; no cerramos aquí)
     } catch (e: any) {
       if (isSessionExpiredError(e)) {
         handleSessionExpired();
@@ -387,9 +325,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           --soft:rgba(0,0,0,0.35);
           --text:#e6d8a8;
         }
-        /* Asegura cálculos correctos en móvil */
         .cs-page, .cs-page * { box-sizing: border-box; }
-
         .cs-page{
           min-height:100svh;
           padding:16px 12px 80px;
@@ -410,7 +346,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           background:radial-gradient(ellipse at 50% 30%, rgba(0,0,0,.25) 0%, rgba(0,0,0,.55) 60%, rgba(0,0,0,.72) 100%);
           z-index:-1;
         }
-
         .cs-header{ width:100%; max-width:640px; margin:0 auto 10px; }
         .cs-title{
           text-align:center; font-size:1.6rem; line-height:1.2; font-weight:800;
@@ -418,7 +353,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           text-shadow:0 0 6px rgba(255,215,128,.4),0 0 12px rgba(255,215,128,.3),0 0 20px rgba(255,215,128,.2);
         }
         .cs-sub{ text-align:center; color:rgba(255,255,255,.88); font-size:.95rem; margin-bottom:14px; }
-
         .cs-card{
           width:100%; max-width:640px; margin:0 auto;
           background:var(--panel); backdrop-filter:blur(6px);
@@ -426,29 +360,24 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           border-radius:14px; box-shadow:0 6px 16px var(--soft);
           padding:12px;
         }
-
-        /* === GRID en móvil: input ocupa 100%, acciones abajo === */
         .cs-row{
           display:grid;
           grid-template-columns: 1fr;
           gap:10px;
           align-items:stretch;
         }
-
         .cs-input{
           width:100%;
           min-width:0;
           padding:14px 14px;
           background:rgba(0,0,0,.5); color:var(--text);
           border:1px solid rgba(195,162,74,.35); border-radius:12px;
-          outline:none; font-size:16px; /* evita zoom iOS */
+          outline:none; font-size:16px;
         }
-
         .cs-actions{
           display:flex; align-items:center; gap:10px;
           width:100%;
         }
-
         .cs-btn{
           appearance:none; -webkit-appearance:none;
           background:var(--panel); color:var(--gold);
@@ -458,7 +387,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           min-height:44px;
         }
         .cs-small{ font-size:.9rem; color:rgba(255,255,255,.9); }
-
         .cs-list{ margin-top:10px; display:grid; gap:10px; }
         .cs-item{
           display:grid; grid-template-columns:auto 1fr auto;
@@ -474,7 +402,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         .cs-titleArtist{ font-weight:800; }
         .cs-subline{ opacity:.9; }
         .cs-err{ margin-top:10px; color:#ffb3b3; }
-
         .cs-toast{
           position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
           background:rgba(12,12,12,.72); color:#f8e7b3;
@@ -484,19 +411,11 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           transition:opacity .25s ease, transform .25s ease;
         }
         .cs-toast.hide{ opacity:0; transform:translate(-50%, 10px); }
-
-        /* ===== Mejora progresiva (vuelve a flex en pantallas anchas) ===== */
         @media (min-width: 640px){
           .cs-title{ font-size:1.9rem; }
           .cs-card{ padding:14px; }
-          .cs-row{
-            display:flex;
-            flex-wrap:nowrap;
-            align-items:center;
-          }
-          .cs-input{
-            flex:1 1 360px;
-          }
+          .cs-row{ display:flex; flex-wrap:nowrap; align-items:center; }
+          .cs-input{ flex:1 1 360px; }
           .cs-actions{ width:auto; }
         }
         @media (min-width: 960px){
@@ -552,12 +471,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
                 ) : (
                   <div
                     className="cs-cover"
-                    style={{
-                      display: "grid",
-                      placeItems: "center",
-                      color: "rgba(255,255,255,0.7)",
-                      fontSize: "1.2rem",
-                    }}
+                    style={{ display: "grid", placeItems: "center", color: "rgba(255,255,255,0.7)", fontSize: "1.2rem" }}
                     aria-hidden="true"
                   >
                     ♪
