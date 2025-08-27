@@ -115,7 +115,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   const [results, setResults] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // Toast + redirección
+  // Toast (para avisos menores)
   const [toastText, setToastText] = useState<string>("");
   const [toastVisible, setToastVisible] = useState(false);
   const redirectTimeoutRef = useRef<number | null>(null);
@@ -124,7 +124,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
     };
   }, []);
-
   const showToast = useCallback((text: string) => {
     setToastText(text);
     setToastVisible(true);
@@ -133,9 +132,32 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
   const scheduleRedirectToDashboard = useCallback(() => {
     if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
-    // ⬇️ Volvemos a usar la ruta directa al dashboard
     redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
   }, [navigate]);
+
+  // ========= Overlay centrado (mensajes importantes) =========
+  const [overlayText, setOverlayText] = useState<string | null>(null);
+  const overlayTimerRef = useRef<number | null>(null);
+
+  const showOverlay = useCallback((text: string, autoHideMs?: number) => {
+    setOverlayText(text);
+    if (overlayTimerRef.current) {
+      window.clearTimeout(overlayTimerRef.current);
+      overlayTimerRef.current = null;
+    }
+    if (autoHideMs && autoHideMs > 0) {
+      overlayTimerRef.current = window.setTimeout(() => {
+        setOverlayText(null);
+        overlayTimerRef.current = null;
+      }, autoHideMs);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (overlayTimerRef.current) window.clearTimeout(overlayTimerRef.current);
+    };
+  }, []);
 
   // Intentar cerrar pestaña (silencioso; si no se puede, no molesta)
   const attemptCloseTab = useCallback(() => {
@@ -172,20 +194,21 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   const handleSessionExpired = useCallback(() => {
     try {
       localStorage.removeItem("sessionId");
+    } catch {}
+    try {
       localStorage.removeItem("mesaId");
     } catch {}
-    // Mensaje solicitado exacto
-    showToast("Sesión cerrada por inactividad. Vuelve a escanear el QR de tu mesa.");
-    // Intento de cierre silencioso; si falla, queda el redirect
+
+    // Overlay centrado + intento de cierre + redirect de respaldo
+    showOverlay("Sesión cerrada por inactividad. Vuelve a escanear el QR de tu mesa.");
     window.setTimeout(attemptCloseTab, 1200);
     scheduleRedirectToDashboard();
-  }, [showToast, scheduleRedirectToDashboard, attemptCloseTab]);
+  }, [showOverlay, scheduleRedirectToDashboard, attemptCloseTab]);
 
   /* ====== Heartbeat/ping: SOLO si hay interacción reciente y la pestaña está visible ====== */
   const lastInteractionRef = useRef<number>(Date.now());
 
   useEffect(() => {
-    // Marcar interacción real del usuario
     const mark = () => { lastInteractionRef.current = Date.now(); };
     window.addEventListener("pointerdown", mark, { passive: true });
     window.addEventListener("keydown", mark);
@@ -206,9 +229,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
     const doPing = async () => {
       if (!sessionId) return;
-      // No mantener viva si pestaña oculta
       if (document.hidden) return;
-      // No ping si no hubo interacción reciente
       const idleFor = Date.now() - lastInteractionRef.current;
       if (idleFor > USER_ACTIVE_WINDOW_MS) return;
 
@@ -216,7 +237,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         if (typeof (apiSessions as any)?.ping === "function") {
           await (apiSessions as any).ping(sessionId);
         } else {
-          return; // si no existe ping en el servicio, no rompe
+          return;
         }
       } catch (e: any) {
         if (cancelled) return;
@@ -226,12 +247,9 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       }
     };
 
-    // Ping inicial si visible
     if (!document.hidden) doPing();
 
     const intervalId = window.setInterval(doPing, HEARTBEAT_MS);
-
-    // Revalidar al volver visible (aunque no haya interacción, para detectar expiración)
     const onVis = () => { if (!document.hidden) doPing(); };
     document.addEventListener("visibilitychange", onVis);
 
@@ -242,8 +260,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     };
   }, [sessionId, isSessionExpiredError, handleSessionExpired]);
 
-  /* ====== Cerrar sesión al cerrar pestaña/ventana ======
-     Usamos sendBeacon (ideal en pagehide) con fallback a fetch keepalive. */
+  /* ====== Cerrar sesión al cerrar pestaña/ventana ====== */
   const closeOnExitSentRef = useRef(false);
   const closeSessionOnExit = useCallback(() => {
     if (closeOnExitSentRef.current) return;
@@ -259,7 +276,6 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         const blob = new Blob([payload], { type: "application/json" });
         navigator.sendBeacon(url, blob);
       } else {
-        // Fallback
         fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -274,13 +290,10 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
   useEffect(() => {
     if (!sessionId) return;
-
     const onPageHide = () => closeSessionOnExit();
     const onBeforeUnload = () => closeSessionOnExit();
-
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("beforeunload", onBeforeUnload);
-
     return () => {
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("beforeunload", onBeforeUnload);
@@ -329,7 +342,8 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   const pedirCancion = async (t: any) => {
     setErr(null);
     if (!sessionId) {
-      showToast("No hay sesión activa. Pídele al staff que abra tu mesa.");
+      // Overlay centrado para este caso
+      showOverlay("No hay sesión activa. Pídele al staff que abra tu mesa.", 3000);
       return;
     }
     const p = parseTrackItem(t);
@@ -354,15 +368,15 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       if (!doc) throw new Error("Respuesta inesperada del servidor");
 
       const { pos, total } = await calcPosition(doc._id);
-      showToast(
+
+      // Overlay centrado para el mensaje de éxito + redirección
+      showOverlay(
         pos
           ? `Tu canción ha sido agregada. Posición #${pos} de ${total}.`
           : "Tu canción ha sido agregada a la cola."
       );
-
       setQ("");
       setResults([]);
-      // ⬇️ mantenemos la redirección al dashboard (/)
       scheduleRedirectToDashboard();
     } catch (e: any) {
       if (isSessionExpiredError(e)) {
@@ -380,16 +394,14 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
   return (
     <div className="cs-page">
-      {/* estilos mobile-first embebidos */}
+      {/* estilos mobile-first + overlay centrado */}
       <style>{`
         :root{
           --gold:#c3a24a;
-          --ink:#0a0a0a;
           --panel:rgba(12,12,12,0.35);
           --soft:rgba(0,0,0,0.35);
           --text:#e6d8a8;
         }
-        /* Asegura cálculos correctos en móvil */
         .cs-page, .cs-page * { box-sizing: border-box; }
 
         .cs-page{
@@ -429,28 +441,19 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           padding:12px;
         }
 
-        /* === GRID en móvil: input ocupa 100%, acciones abajo === */
         .cs-row{
-          display:grid;
-          grid-template-columns: 1fr;
-          gap:10px;
-          align-items:stretch;
+          display:grid; grid-template-columns: 1fr;
+          gap:10px; align-items:stretch;
         }
-
         .cs-input{
-          width:100%;
-          min-width:0;
-          padding:14px 14px;
+          width:100%; min-width:0; padding:14px 14px;
           background:rgba(0,0,0,.5); color:var(--text);
           border:1px solid rgba(195,162,74,.35); border-radius:12px;
-          outline:none; font-size:16px; /* evita zoom iOS */
+          outline:none; font-size:16px;
         }
-
         .cs-actions{
-          display:flex; align-items:center; gap:10px;
-          width:100%;
+          display:flex; align-items:center; gap:10px; width:100%;
         }
-
         .cs-btn{
           appearance:none; -webkit-appearance:none;
           background:var(--panel); color:var(--gold);
@@ -466,8 +469,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           display:grid; grid-template-columns:auto 1fr auto;
           gap:10px; align-items:center; padding:10px;
           border-radius:12px; border:1px solid rgba(195,162,74,.25);
-          background:rgba(0,0,0,.35);
-          min-height:64px;
+          background:rgba(0,0,0,.35); min-height:64px;
         }
         .cs-cover{
           width:56px; height:56px; object-fit:cover;
@@ -487,18 +489,34 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         }
         .cs-toast.hide{ opacity:0; transform:translate(-50%, 10px); }
 
-        /* ===== Mejora progresiva (vuelve a flex en pantallas anchas) ===== */
+        /* ===== Overlay centrado ===== */
+        .cs-screen{
+          position:fixed; inset:0;
+          display:flex; align-items:center; justify-content:center;
+          background:rgba(0,0,0,.55);
+          backdrop-filter: blur(6px);
+          opacity:0; visibility:hidden; z-index:20;
+          transition: opacity .25s ease, visibility .25s ease;
+        }
+        .cs-screen.show{ opacity:1; visibility:visible; }
+        .cs-modal-box{
+          background:rgba(16,16,16,.85);
+          border:1px solid rgba(195,162,74,.45);
+          color:#f8e7b3;
+          padding:18px 16px;
+          border-radius:14px;
+          box-shadow:0 14px 36px rgba(0,0,0,.55);
+          width:min(560px, 92vw);
+          text-align:center;
+          font-size:1rem;
+        }
+
+        /* ===== Mejora progresiva pantallas anchas ===== */
         @media (min-width: 640px){
           .cs-title{ font-size:1.9rem; }
           .cs-card{ padding:14px; }
-          .cs-row{
-            display:flex;
-            flex-wrap:nowrap;
-            align-items:center;
-          }
-          .cs-input{
-            flex:1 1 360px;
-          }
+          .cs-row{ display:flex; flex-wrap:nowrap; align-items:center; }
+          .cs-input{ flex:1 1 360px; }
           .cs-actions{ width:auto; }
         }
         @media (min-width: 960px){
@@ -587,7 +605,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
             );
           })}
 
-          {!searching && results.length === 0 && q.trim() && (
+        {!searching && results.length === 0 && q.trim() && (
             <div className="cs-small" style={{ marginTop: 10 }}>
               No encontramos canciones para “{q}”. Intenta con otro término.
             </div>
@@ -597,9 +615,16 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         {err && <div className="cs-err">⚠️ {err}</div>}
       </section>
 
-      {/* Toast */}
+      {/* Toast inferior (para mensajes no críticos) */}
       <div className={`cs-toast ${toastVisible ? "" : "hide"}`} role="status" aria-live="polite">
         {toastText}
+      </div>
+
+      {/* Overlay centrado */}
+      <div className={`cs-screen ${overlayText ? "show" : ""}`}>
+        <div className="cs-modal-box" role="dialog" aria-live="polite">
+          {overlayText}
+        </div>
       </div>
     </div>
   );
