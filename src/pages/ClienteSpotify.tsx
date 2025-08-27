@@ -1,7 +1,8 @@
 // src/pages/ClienteSpotify.tsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { musicClient } from "../services/musicClient";
+import apiSessions from "../services/apiSessions"; // ⬅️ usar default import
 
 /* ---------- Utils ---------- */
 function msToMinSec(ms?: number) {
@@ -88,6 +89,7 @@ function parseTrackItem(raw: any) {
 
 /* ---------- Config ---------- */
 const REDIRECT_DELAY_MS = 3500;
+const HEARTBEAT_MS = 70_000; // ~70s
 
 /* ---------- Página ---------- */
 const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
@@ -121,15 +123,92 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
     };
   }, []);
-  const showToast = (text: string) => {
+
+  const showToast = useCallback((text: string) => {
     setToastText(text);
     setToastVisible(true);
     window.setTimeout(() => setToastVisible(false), REDIRECT_DELAY_MS);
-  };
-  const scheduleRedirectToDashboard = () => {
+  }, []);
+
+  const scheduleRedirectToDashboard = useCallback(() => {
     if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
     redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
-  };
+  }, [navigate]);
+
+  // ---------- Helpers de sesión expirada ----------
+  const isSessionExpiredError = useCallback((e: any): boolean => {
+    const status = e?.response?.status ?? e?.status;
+    const code =
+      e?.response?.data?.code ||
+      (() => {
+        try {
+          const parsed = JSON.parse(e?.message || "{}");
+          return parsed?.code;
+        } catch {
+          return undefined;
+        }
+      })();
+    return (
+      status === 410 ||
+      (status === 403 && (code === "SESSION_EXPIRED" || code === "SESSION_INVALID")) ||
+      (status === 401 && code === "NO_SESSION") ||
+      code === "SESSION_EXPIRED"
+    );
+  }, []);
+
+  const handleSessionExpired = useCallback(
+    (msg?: string) => {
+      try {
+        localStorage.removeItem("sessionId");
+        localStorage.removeItem("mesaId");
+      } catch {}
+      showToast(msg || "Tu mesa se cerró por inactividad. Escanea el QR nuevamente.");
+      scheduleRedirectToDashboard();
+    },
+    [showToast, scheduleRedirectToDashboard]
+  );
+
+  // Heartbeat/ping para mantener y validar la sesión
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+
+    const doPing = async () => {
+      try {
+        // ⬇️ usa ping si existe en el default export; si no, no rompe
+        if (typeof (apiSessions as any)?.ping === "function") {
+          await (apiSessions as any).ping(sessionId);
+        } else {
+          return; // no hay ping implementado aún
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        if (isSessionExpiredError(e)) {
+          handleSessionExpired("Tu mesa se cerró por inactividad.");
+        } else {
+          // errores de red temporales: ignorar
+        }
+      }
+    };
+
+    // ping inicial
+    doPing();
+
+    // intervalo
+    const intervalId = window.setInterval(doPing, HEARTBEAT_MS);
+
+    // revalidar al volver a la pestaña
+    const onVis = () => {
+      if (!document.hidden) doPing();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [sessionId, isSessionExpiredError, handleSessionExpired]);
 
   // Buscar con debounce (mobile-first)
   useEffect(() => {
@@ -208,6 +287,10 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       setResults([]);
       scheduleRedirectToDashboard();
     } catch (e: any) {
+      if (isSessionExpiredError(e)) {
+        handleSessionExpired("Tu mesa se cerró por inactividad.");
+        return;
+      }
       try {
         const parsed = JSON.parse(e.message);
         showToast(parsed?.msg || e.message);
