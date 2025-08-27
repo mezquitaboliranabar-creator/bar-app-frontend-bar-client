@@ -131,7 +131,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
   };
 
-  // Buscar con debounce (mobile-first: ligero)
+  // Buscar con debounce (mobile-first)
   useEffect(() => {
     if (!q.trim()) {
       setResults([]);
@@ -228,9 +228,12 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           --soft:rgba(0,0,0,0.35);
           --text:#e6d8a8;
         }
+        /* Asegura cálculos correctos en móvil */
+        .cs-page, .cs-page * { box-sizing: border-box; }
+
         .cs-page{
           min-height:100svh;
-          padding:16px 10px 80px;
+          padding:16px 12px 80px;
           color:var(--gold);
           font-family:'Orbitron',sans-serif;
           position:relative;
@@ -248,6 +251,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           background:radial-gradient(ellipse at 50% 30%, rgba(0,0,0,.25) 0%, rgba(0,0,0,.55) 60%, rgba(0,0,0,.72) 100%);
           z-index:-1;
         }
+
         .cs-header{ width:100%; max-width:640px; margin:0 auto 10px; }
         .cs-title{
           text-align:center; font-size:1.6rem; line-height:1.2; font-weight:800;
@@ -255,6 +259,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           text-shadow:0 0 6px rgba(255,215,128,.4),0 0 12px rgba(255,215,128,.3),0 0 20px rgba(255,215,128,.2);
         }
         .cs-sub{ text-align:center; color:rgba(255,255,255,.88); font-size:.95rem; margin-bottom:14px; }
+
         .cs-card{
           width:100%; max-width:640px; margin:0 auto;
           background:var(--panel); backdrop-filter:blur(6px);
@@ -262,23 +267,39 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           border-radius:14px; box-shadow:0 6px 16px var(--soft);
           padding:12px;
         }
-        .cs-row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+        /* === GRID en móvil: input ocupa 100%, acciones abajo === */
+        .cs-row{
+          display:grid;
+          grid-template-columns: 1fr;
+          gap:10px;
+          align-items:stretch;
+        }
+
         .cs-input{
-          flex:1 1 100%; min-width:0; padding:14px 14px;
+          width:100%;
+          min-width:0;
+          padding:14px 14px;
           background:rgba(0,0,0,.5); color:var(--text);
           border:1px solid rgba(195,162,74,.35); border-radius:12px;
           outline:none; font-size:16px; /* evita zoom iOS */
         }
-        .cs-actions{ display:flex; align-items:center; gap:10px; width:100%; }
+
+        .cs-actions{
+          display:flex; align-items:center; gap:10px;
+          width:100%;
+        }
+
         .cs-btn{
           appearance:none; -webkit-appearance:none;
           background:var(--panel); color:var(--gold);
           padding:12px 16px; border:1px solid rgba(195,162,74,.4);
           border-radius:12px; font-size:1rem; font-weight:700;
           cursor:pointer; box-shadow:0 6px 16px var(--soft);
-          min-height:44px; /* touch target */
+          min-height:44px;
         }
         .cs-small{ font-size:.9rem; color:rgba(255,255,255,.9); }
+
         .cs-list{ margin-top:10px; display:grid; gap:10px; }
         .cs-item{
           display:grid; grid-template-columns:auto 1fr auto;
@@ -294,6 +315,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         .cs-titleArtist{ font-weight:800; }
         .cs-subline{ opacity:.9; }
         .cs-err{ margin-top:10px; color:#ffb3b3; }
+
         .cs-toast{
           position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
           background:rgba(12,12,12,.72); color:#f8e7b3;
@@ -303,11 +325,19 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           transition:opacity .25s ease, transform .25s ease;
         }
         .cs-toast.hide{ opacity:0; transform:translate(-50%, 10px); }
-        /* ------ Mejora progresiva (tablets/escritorio) ------ */
+
+        /* ===== Mejora progresiva (vuelve a flex en pantallas anchas) ===== */
         @media (min-width: 640px){
           .cs-title{ font-size:1.9rem; }
           .cs-card{ padding:14px; }
-          .cs-input{ flex:1 1 360px; }
+          .cs-row{
+            display:flex;
+            flex-wrap:nowrap;
+            align-items:center;
+          }
+          .cs-input{
+            flex:1 1 360px;
+          }
           .cs-actions{ width:auto; }
         }
         @media (min-width: 960px){
