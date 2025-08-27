@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { musicClient } from "../services/musicClient";
-import apiSessions from "../services/apiSessions"; // ⬅️ usar default import
+import apiSessions from "../services/apiSessions"; // default import
 
 /* ---------- Utils ---------- */
 function msToMinSec(ms?: number) {
@@ -135,6 +135,20 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
     redirectTimeoutRef.current = window.setTimeout(() => navigate("/"), REDIRECT_DELAY_MS);
   }, [navigate]);
 
+  // ======== NUEVO: intentar cerrar pestaña de forma segura ========
+  const attemptCloseTab = useCallback(() => {
+    try {
+      // Cierre estándar (solo funciona si la pestaña la abrió un script)
+      window.close();
+    } catch {}
+    // Intento alterno: iOS/Safari/standalone pueden requerir este patrón
+    try {
+      const w = window.open("", "_self");
+      w?.close?.();
+    } catch {}
+    // Si no se pudo cerrar, el fallback de redirect ya está programado
+  }, []);
+
   // ---------- Helpers de sesión expirada ----------
   const isSessionExpiredError = useCallback((e: any): boolean => {
     const status = e?.response?.status ?? e?.status;
@@ -162,10 +176,17 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         localStorage.removeItem("sessionId");
         localStorage.removeItem("mesaId");
       } catch {}
-      showToast(msg || "Tu mesa se cerró por inactividad. Escanea el QR nuevamente.");
+      // Mensaje solicitado:
+      const message = msg || "Sesión cerrada por inactividad. Vuelve a escanear el QR.";
+      showToast(message);
+
+      // Intentar cerrar pestaña tras un pequeño delay para que el usuario vea el toast
+      window.setTimeout(attemptCloseTab, 1200);
+
+      // Fallback: si el cierre es bloqueado por el navegador, redirige al dashboard
       scheduleRedirectToDashboard();
     },
-    [showToast, scheduleRedirectToDashboard]
+    [showToast, scheduleRedirectToDashboard, attemptCloseTab]
   );
 
   // Heartbeat/ping para mantener y validar la sesión
@@ -175,16 +196,15 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
 
     const doPing = async () => {
       try {
-        // ⬇️ usa ping si existe en el default export; si no, no rompe
         if (typeof (apiSessions as any)?.ping === "function") {
           await (apiSessions as any).ping(sessionId);
         } else {
-          return; // no hay ping implementado aún
+          return; // si no existe ping en el servicio, no rompe
         }
       } catch (e: any) {
         if (cancelled) return;
         if (isSessionExpiredError(e)) {
-          handleSessionExpired("Tu mesa se cerró por inactividad.");
+          handleSessionExpired();
         } else {
           // errores de red temporales: ignorar
         }
@@ -288,7 +308,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
       scheduleRedirectToDashboard();
     } catch (e: any) {
       if (isSessionExpiredError(e)) {
-        handleSessionExpired("Tu mesa se cerró por inactividad.");
+        handleSessionExpired();
         return;
       }
       try {
