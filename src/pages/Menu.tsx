@@ -3,6 +3,15 @@ import { useNavigate } from "react-router-dom";
 import apiCategorias, { Categoria } from "../services/apiCategorias";
 import apiBebidas, { Bebida } from "../services/apiBebidas";
 
+// ⬇️ Nuevo: formateador de precio
+function formatPrice(value?: number) {
+  if (value == null || Number.isNaN(value)) return "--";
+  const isInt = Math.floor(value) === value;
+  return isInt
+    ? value.toLocaleString("es-CO")
+    : value.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const Menu: React.FC = () => {
   const navigate = useNavigate();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -179,7 +188,7 @@ const Menu: React.FC = () => {
                     {bebidasDeCategoria.length > 0 ? (
                       bebidasDeCategoria.map((b) => (
                         <li key={b._id}>
-                          {b.nombre} - ${b.precio.toFixed(2)}
+                          {b.nombre} - ${formatPrice(b.precio)}
                         </li>
                       ))
                     ) : (
