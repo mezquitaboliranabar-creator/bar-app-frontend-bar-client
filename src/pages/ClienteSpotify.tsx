@@ -192,12 +192,8 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
   }, []);
 
   const handleSessionExpired = useCallback(() => {
-    try {
-      localStorage.removeItem("sessionId");
-    } catch {}
-    try {
-      localStorage.removeItem("mesaId");
-    } catch {}
+    try { localStorage.removeItem("sessionId"); } catch {}
+    try { localStorage.removeItem("mesaId"); } catch {}
 
     // Overlay centrado + intento de cierre + redirect de respaldo
     showOverlay("Sesión cerrada por inactividad. Vuelve a escanear el QR de tu mesa.");
@@ -467,7 +463,9 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         .cs-list{ margin-top:10px; display:grid; gap:10px; }
         .cs-item{
           display:grid; grid-template-columns:auto 1fr auto;
-          gap:10px; align-items:center; padding:10px;
+          gap:10px; align-items:center;
+          /* más aire lateral + safe area */
+          padding:12px max(16px, env(safe-area-inset-right, 0px) + 8px) 12px max(16px, env(safe-area-inset-left, 0px) + 8px);
           border-radius:12px; border:1px solid rgba(195,162,74,.25);
           background:rgba(0,0,0,.35); min-height:64px;
         }
@@ -478,6 +476,13 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         .cs-titleArtist{ font-weight:800; }
         .cs-subline{ opacity:.9; }
         .cs-err{ margin-top:10px; color:#ffb3b3; }
+
+        /* Celda derecha: duración + botón con margen seguro */
+        .cs-cta{
+          display:flex; gap:10px; align-items:center; justify-self:end;
+          padding-right:max(8px, env(safe-area-inset-right, 0px));
+        }
+        .cs-duration{ min-width:56px; text-align:right; }
 
         .cs-toast{
           position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
@@ -511,6 +516,12 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
           font-size:1rem;
         }
 
+        /* Afinar en móviles muy estrechos */
+        @media (max-width: 420px){
+          .cs-item{ padding:14px max(18px, env(safe-area-inset-right, 0px) + 10px) 14px max(18px, env(safe-area-inset-left, 0px) + 10px); }
+          .cs-cta{ gap:12px; }
+        }
+
         /* ===== Mejora progresiva pantallas anchas ===== */
         @media (min-width: 640px){
           .cs-title{ font-size:1.9rem; }
@@ -522,7 +533,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         @media (min-width: 960px){
           .cs-header, .cs-card{ max-width:900px; }
           .cs-title{ font-size:2.2rem; }
-          .cs-item{ padding:12px; }
+          .cs-item{ padding:12px 16px; }
           .cs-cover{ width:60px; height:60px; }
         }
       `}</style>
@@ -559,6 +570,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
         <div className="cs-list">
           {results.map((t, i) => {
             const p = parseTrackItem(t);
+            const durStr = msToMinSec(p.duration_ms);
             return (
               <div key={p.uri || p.id || i} className="cs-item">
                 {p.imageUrl ? (
@@ -572,12 +584,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
                 ) : (
                   <div
                     className="cs-cover"
-                    style={{
-                      display: "grid",
-                      placeItems: "center",
-                      color: "rgba(255,255,255,0.7)",
-                      fontSize: "1.2rem",
-                    }}
+                    style={{ display: "grid", placeItems: "center", color: "rgba(255,255,255,0.7)", fontSize: "1.2rem" }}
                     aria-hidden="true"
                   >
                     ♪
@@ -589,10 +596,10 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
                   <div className="cs-subline">{p.artistNames || "—"}</div>
                 </div>
 
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div className="cs-small" style={{ minWidth: 56, textAlign: "right" }}>
-                    {msToMinSec(p.duration_ms)}
-                  </div>
+                <div className="cs-cta">
+                  {durStr !== "--:--" && (
+                    <div className="cs-small cs-duration">{durStr}</div>
+                  )}
                   <button
                     className="cs-btn"
                     onClick={() => pedirCancion(t)}
@@ -605,7 +612,7 @@ const ClienteSpotify: React.FC<{ sessionId?: string; mesaId?: string }> = ({
             );
           })}
 
-        {!searching && results.length === 0 && q.trim() && (
+          {!searching && results.length === 0 && q.trim() && (
             <div className="cs-small" style={{ marginTop: 10 }}>
               No encontramos canciones para “{q}”. Intenta con otro término.
             </div>

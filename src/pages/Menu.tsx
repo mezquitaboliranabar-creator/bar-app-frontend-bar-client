@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import apiCategorias, { Categoria } from "../services/apiCategorias";
 import apiBebidas, { Bebida } from "../services/apiBebidas";
 
-// ⬇️ Nuevo: formateador de precio
+// Formateador de precio (sin .00 cuando es entero)
 function formatPrice(value?: number) {
   if (value == null || Number.isNaN(value)) return "--";
   const isInt = Math.floor(value) === value;
@@ -12,42 +12,41 @@ function formatPrice(value?: number) {
     : value.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const GOLD = "#c3a24a";
+const GOLD_SOFT = "rgba(195,162,74,0.55)";
+const GOLD_STRONG = "rgba(195,162,74,0.85)";
+
 const Menu: React.FC = () => {
   const navigate = useNavigate();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [bebidas, setBebidas] = useState<Bebida[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
   const [fade, setFade] = useState(false);
 
   useEffect(() => {
-    setFade(true); // animación de entrada
-
-    const fetchCategorias = async () => {
+    setFade(true);
+    (async () => {
       try {
         const cats = await apiCategorias.getAll();
         setCategorias(cats);
       } catch (err) {
         console.error("Error al cargar categorías:", err);
       }
-    };
-    fetchCategorias();
-
-    const fetchBebidas = async () => {
       try {
         const bds = await apiBebidas.getAll();
         setBebidas(bds);
       } catch (err) {
         console.error("Error al cargar bebidas:", err);
       }
-    };
-    fetchBebidas();
+    })();
   }, []);
 
   const toggleCategory = (id: string) =>
     setActiveCategory((prev) => (prev === id ? null : id));
 
   const handleNavigateBack = () => {
-    setFade(false); // animación de salida
+    setFade(false);
     setTimeout(() => navigate("/"), 300);
   };
 
@@ -93,7 +92,7 @@ const Menu: React.FC = () => {
     left: "20px",
     padding: "10px 16px",
     borderRadius: "10px",
-    border: "2px solid #FFD780",
+    border: `2px solid ${GOLD}`,
     background: "rgba(12,12,12,0.35)",
     color: "#FFD780",
     fontWeight: 700,
@@ -101,7 +100,12 @@ const Menu: React.FC = () => {
     zIndex: 10,
   };
 
-  const categoryWrapperStyle = (isActive: boolean, numBebidas: number, index: number): React.CSSProperties => ({
+  const categoryWrapperStyle = (
+    isActive: boolean,
+    isHovered: boolean,
+    numBebidas: number,
+    index: number
+  ): React.CSSProperties => ({
     position: "relative",
     width: "280px",
     height: isActive ? 110 + numBebidas * 32 : 110,
@@ -109,7 +113,9 @@ const Menu: React.FC = () => {
     borderRadius: "16px",
     overflow: "hidden",
     cursor: "pointer",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
+    background: "rgba(12,12,12,0.28)", // leve panel para que el borde destaque
+    border: `1.8px solid ${isActive || isHovered ? GOLD_STRONG : GOLD_SOFT}`,
+    boxShadow: isActive || isHovered ? "0 10px 22px rgba(0,0,0,0.35)" : "0 6px 16px rgba(0,0,0,0.25)",
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
@@ -117,7 +123,8 @@ const Menu: React.FC = () => {
     textAlign: "center",
     opacity: fade ? 1 : 0,
     transform: fade ? "translateY(0px)" : "translateY(20px)",
-    transition: `opacity 0.5s ease ${(index + 1) * 0.1}s, transform 0.5s ease ${(index + 1) * 0.1}s, height 0.4s ease`,
+    transition:
+      `opacity 0.5s ease ${(index + 1) * 0.1}s, transform 0.5s ease ${(index + 1) * 0.1}s, height 0.4s ease, border-color .2s ease, box-shadow .2s ease`,
   });
 
   const categoryBackgroundStyle = (imagen: string, isActive: boolean): React.CSSProperties => ({
@@ -172,13 +179,16 @@ const Menu: React.FC = () => {
 
         {categorias.map((cat, index) => {
           const isActive = activeCategory === cat._id;
+          const isHovered = hovered === cat._id;
           const bebidasDeCategoria = bebidas.filter((b) => b.categoria._id === cat._id);
 
           return (
             <div
               key={cat._id}
-              style={categoryWrapperStyle(isActive, bebidasDeCategoria.length, index)}
+              style={categoryWrapperStyle(isActive, isHovered, bebidasDeCategoria.length, index)}
               onClick={() => toggleCategory(cat._id)}
+              onMouseEnter={() => setHovered(cat._id)}
+              onMouseLeave={() => setHovered(null)}
             >
               <div style={categoryBackgroundStyle(cat.imagen, isActive)} />
               <div style={categoryContentStyle}>
